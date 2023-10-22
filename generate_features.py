@@ -40,6 +40,11 @@ def get_feature_matrix(audio_filename, feature_storage_path=os.path.join('data',
         np.save(feature_filename, mel_data)
         return mel_data
 
+def generate_features(audio_filename):
+
+    features = get_feature_matrix(audio_filename, feature_storage_path)
+    # print(f'{audio_filename}, {features.shape}')
+
 def get_label_filename(audio_filename, labels_storage_path):
     """Get feature filename from audio filename. """
 
@@ -49,34 +54,45 @@ def get_label_filename(audio_filename, labels_storage_path):
     )
 
 def get_labels(audio_filename, labels_storage_path=os.path.join('data', 'labels_sed')):
-    """Extract labels for given audio file and store them."""
+    """Extract labels (log mel-energies) for given audio file and store them."""
     # NB - provide just audio filename path from dataset ie. TUT-acoustic-scenes-2016-development/audio/a099_0_30.wav
+
+    # long_filename = audio_filename
+    # audio_filename = audio_filename.split('data/')[1]
 
     labels_storage_path = os.path.join(labels_storage_path,audio_filename.rpartition('/')[0])
     os.makedirs(labels_storage_path, exist_ok=True)
+    # print(f'labels storage path {labels_storage_path}')
     label_filename = get_label_filename(audio_filename, labels_storage_path)
-
+    # print(f'label_filename {label_filename}')
     if os.path.exists(label_filename):
         return np.load(label_filename)
     else:
         audio = dcase_util.containers.AudioContainer().load(filename=f'data/datasets/{audio_filename}', mono=True)
+        # mel_extractor = dcase_util.features.MelExtractor(n_mels=config.n_mels, win_length_seconds=config.frame_width, hop_length_seconds=config.hop_width,
+        #                                                  fs=audio.fs)
 
         development_file = os.path.join(metadata_path,f'/meta/meta_evaluation.txt')
         df = pd.read_csv(f'{metadata_path}{development_file}',sep='\t')
         df.rename(columns={'path':'filename','event_start_time':'onset','event_end_time':'offset'}, inplace=True)
         df.drop(columns='scene_label', inplace=True)
         df = df[df['filename'] == audio_filename]
+        # print(df)
         meta = dcase_util.containers.MetaDataContainer(df.to_dict(orient='records'))
+        #
         event_roll_encoder = dcase_util.data.EventRollEncoder(
             label_list=meta.unique_event_labels,
             time_resolution=0.02
         )
-
+        # #
         # # # Encode
         event_roll = event_roll_encoder.encode(
             metadata_container=meta,
             length_seconds=audio.duration_sec
         )
+
+        # print(event_roll.data.shape[1])
+        # print(event_roll.data)
         print(f'{event_roll.label_list}\n{label_filename}')
 
         # initialize label array
@@ -104,58 +120,24 @@ def get_labels(audio_filename, labels_storage_path=os.path.join('data', 'labels_
         print(label, label.shape)
         np.save(label_filename, label)
 
-def split_in_seqs(data, subdivs):
-    if len(data.shape) == 1:
-        if data.shape[0] % subdivs:
-            data = data[:-(data.shape[0] % subdivs)]
-        data = data.reshape((data.shape[0] // subdivs, subdivs, 1))
-    elif len(data.shape) == 2:
-        if data.shape[0] % subdivs:
-            data = data[:-(data.shape[0] % subdivs), :]
-        data = data.reshape((data.shape[0] // subdivs, subdivs, data.shape[1]))
-    elif len(data.shape) == 3:
-        if data.shape[0] % subdivs:
-            data = data[:-(data.shape[0] % subdivs), :, :]
-        data = data.reshape((data.shape[0] // subdivs, subdivs, data.shape[1], data.shape[2]))
-    return data
+
+        # event_roll = meta.to_event_roll(
+        #     label_list=config.classes,  # Event labels
+        #     time_resolution=config.hop_width,  # Time resolution of feature matrix
+        #     length_seconds=audio.duration_sec  # Length of original audio signal
+        # )
+        # target_matrix = data_sequencer.sequence(event_roll)
+        # print(target_matrix,target_matrix.shape)
 
 
-def move_data_to_device(x, device):
-    if 'float' in str(x.dtype):
-        x = torch.Tensor(x)
-    elif 'int' in str(x.dtype):
-        x = torch.LongTensor(x)
-    else:
-        return x
+        # np.save(label_filename,event_roll.data)
+        # print(f'Generated label {label_filename}')
+        # event_roll.plot()
 
-    return x.to(device)
-
-def load_data(_feat_folder, _lab_folder,  _fold=None):
-    # Load features (mbe)
-    feat_file_fold = os.path.join(_feat_folder, 'merged_mbe_fold{}.npz'.format( _fold))
-    dmp = np.load(feat_file_fold)
-
-    _X_train, _X_val = dmp['arr_0'], dmp['arr_1']
-
-    # Load the corresponding labels
-    lab_file_fold = os.path.join(_lab_folder, 'merged_lab_soft_fold{}.npz'.format(_fold))
-    dmp = np.load(lab_file_fold)
-    _Y_train, _Y_val = dmp['arr_0'], dmp['arr_1']
-
-    return _X_train, _Y_train, _X_val, _Y_val
-
-
-def preprocess_data(_X, _Y, _X_val, _Y_val, _seq_len):
-    # split into sequences
-    _X = split_in_seqs(_X, _seq_len)
-    _Y = split_in_seqs(_Y, _seq_len)
-
-    _X_val = split_in_seqs(_X_val, _seq_len)
-    _Y_val = split_in_seqs(_Y_val, _seq_len)
-
-    return _X, _Y, _X_val, _Y_val
-
-
+        # # Visualize
+        # event_roll.plot()
+        # np.save(label_filename, event_roll_encoder.save())
+        # return label_data
 
 def train():
 
@@ -179,6 +161,7 @@ def train():
     dataset_storage_path = os.path.join(data_storage_path, 'datasets')
     feature_storage_path = os.path.join(data_storage_path, 'features_sed')
     metadata_path = os.path.join(data_storage_path, 'metadata')
+    labels_storage_path = os.path.join(data_storage_path, ' labels_sed')
     dcase_util.utils.Path().create(
         [data_storage_path, dataset_storage_path, feature_storage_path]
     )
@@ -188,8 +171,6 @@ def train():
 
     avg_f1 = []
     avg_error = []
-    print(f'Learning rate {config.learning_rate} - sequence length {config.sequence_length} - batch_size {config.batch_size}')
-
 
     # For evaluating the model
     segment_based_metrics = sed_eval.sound_event.SegmentBasedMetrics(
@@ -197,38 +178,56 @@ def train():
         time_resolution=1.0
     )
 
-    for fold in config.cv_fold:
-        if fold == 1:
-            development_file = os.path.join(metadata_path,f'/crossvalidation/meta_fold0{fold}_development.txt')
-            # print(development_file)
-            df = pd.read_csv(f'{metadata_path}{development_file}',sep='\t')
-            # filenames = df['path'].str.rsplit('/', 1)
-            files = df['path'].unique()
-            # print(un)
-            print(files)
+    # sed16_dev = dcase_util.datasets.TUTSoundEvents_2016_DevelopmentSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    # sed16_eval = dcase_util.datasets.TUTSoundEvents_2016_EvaluationSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    #
+    # sed17_dev = dcase_util.datasets.TUTSoundEvents_2017_DevelopmentSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    # sed17_eval = dcase_util.datasets.TUTSoundEvents_2017_EvaluationSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    #
+    # acsc16_dev = dcase_util.datasets.TUTAcousticScenes_2016_DevelopmentSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    # acsc16_eval = dcase_util.datasets.TUTAcousticScenes_2016_EvaluationSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    #
+    # acsc17_dev = dcase_util.datasets.TUTAcousticScenes_2017_DevelopmentSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+    # acsc17_eval = dcase_util.datasets.TUTAcousticScenes_2017_EvaluationSet(
+    #     data_path=dataset_storage_path
+    # ).initialize()
+
+    # files = acsc16_dev.audio_files
+    # for f in files:
+    #     # generate_features(f)
+    #     get_labels(f)
+    #     # print(f)
+
+    # dir1 = 'data/datasets/TUT-sound-events-2017-evaluation/audio/street/'
+    # for dirpath, dirnames, filenames in os.walk(dir1):
+    #     for filename in filenames:
+    #         generate_features(os.path.join(dir1,filename))
 
     # for fold in config.cv_fold:
-    #
-    #     # Load features and labels
-    #     X, Y, X_val, Y_val = load_data('development/features', 'development/soft_labels', fold)
-    #     X, Y, X_val, Y_val = preprocess_data(X, Y, X_val, Y_val, config.sequence_length)
-    #
-    #     train_dataset = TUTDataset(X, Y)
-    #     validate_dataset = TUTDataset(X_val, Y_val)
-    #
-    #     # Data loader
-    #     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True,
-    #                                                num_workers=1, pin_memory=True)
-    #
-    #     validate_loader = torch.utils.data.DataLoader(dataset=validate_dataset, batch_size=batch_size, shuffle=True,
-    #                                                   num_workers=1, pin_memory=True)
-    #
-    #     # Prepare model
-    #     modelcrnn = CRNN(config.n_classes, config.cnn_filter, config.gru_hidden_layers, config.dropout)
-    #
-    #     if 'cuda' in device:
-    #         modelcrnn.to(device)
-    #     print('\nCreate model:')
+    #     if fold == 1:
+    #         development_file = os.path.join(metadata_path,f'/crossvalidation/meta_fold0{fold}_development.txt')
+    #         # print(development_file)
+    #         df = pd.read_csv(f'{metadata_path}{development_file}',sep='\t')
+    #         files = df['path'].unique()
+    #         df.rename(columns={'path':'filename','event_start_time':'onset','event_end_time':'offset'}, inplace=True)
+    #         print(df.columns)
+    #         df.drop(columns='scene_label', inplace=True)
+
+
 
 
 if __name__ == '__main__':
@@ -238,8 +237,34 @@ if __name__ == '__main__':
     data_storage_path = 'data'
     dataset_storage_path = os.path.join(data_storage_path, 'datasets')
     feature_storage_path = os.path.join(data_storage_path, 'features_sed')
+    metadata_storage_path = os.path.join(data_storage_path, 'features_sed')
+    metadata_path = os.path.join(data_storage_path, 'metadata')
     dcase_util.utils.Path().create(
         [data_storage_path, dataset_storage_path, feature_storage_path]
     )
 
-    train()
+    # development_file = os.path.join(metadata_path, f'/meta/meta_evaluation.txt')
+    # df = pd.read_csv(f'{metadata_path}{development_file}', sep='\t')
+    # df['duration'] = df.event_end_time - df.event_start_time
+    # print(df['duration'].sum())
+    # train()
+    dataset_dev = dcase_util.datasets.Dataset(name='TUT_SED_ASC_Combined',data_path=dataset_storage_path,local_path=data_storage_path, meta_filename='metadata/meta/meta_development_db.txt',crossvalidation_folds=4,evaluation_setup_folder= 'metadata/crossvalidation/')
+    dataset_eval = dcase_util.datasets.Dataset(name='TUT_SED_ASC_Combined', data_path=dataset_storage_path,
+                                              local_path=data_storage_path,
+                                              meta_filename='metadata/meta/meta_evaluation_db.txt',
+                                              crossvalidation_folds=4,
+                                              evaluation_setup_folder='metadata/crossvalidation/')
+    #
+    dev_files = []
+    eval_files = []
+
+    for i,file in enumerate(dataset_eval.train_files()):
+        filename = file.split('data/')[1]
+        print(i,filename)
+        # get_labels(filename)
+        eval_files.append(filename)
+
+
+    with open('eval_files.txt','w') as tfile:
+        tfile.write('\n'.join(eval_files))
+
