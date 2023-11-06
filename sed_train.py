@@ -10,6 +10,7 @@ import numpy as np
 import config
 import scipy.signal
 from model import *
+from sklearn import preprocessing
 from tut_dataset import TUTDataset
 import pandas as pd
 
@@ -25,10 +26,12 @@ def get_feature_filename(audio_filename, feature_storage_path):
 def get_feature_matrix(audio_filename, feature_storage_path=os.path.join('data', 'features_sed')):
     """Extract acoustic features (log mel-energies) for given audio file and store them."""
 
-    feature_storage_path = os.path.join(feature_storage_path,audio_filename.split("datasets/")[1].rpartition('/')[0])
+    # feature_storage_path = os.path.join(feature_storage_path,audio_filename.split("datasets/")[1].rpartition('/')[0])
+    new_feature_storage_path = os.path.join(feature_storage_path, audio_filename.rpartition('/')[0])
     os.makedirs(feature_storage_path, exist_ok=True)
-    print(f'feature storage path {feature_storage_path}')
-    feature_filename = get_feature_filename(audio_filename, feature_storage_path)
+    # print(f'audio filename is {audio_filename}')
+    # print(f'new feature storage path {new_feature_storage_path}')
+    feature_filename = get_feature_filename(audio_filename, new_feature_storage_path)
     print(f'feature_filename {feature_filename}')
     if os.path.exists(feature_filename):
         return np.load(feature_filename)
@@ -55,6 +58,7 @@ def get_labels(audio_filename, labels_storage_path=os.path.join('data', 'labels_
     labels_storage_path = os.path.join(labels_storage_path,audio_filename.rpartition('/')[0])
     os.makedirs(labels_storage_path, exist_ok=True)
     label_filename = get_label_filename(audio_filename, labels_storage_path)
+    print(f'label filename : {label_filename}')
 
     if os.path.exists(label_filename):
         return np.load(label_filename)
@@ -84,7 +88,6 @@ def get_labels(audio_filename, labels_storage_path=os.path.join('data', 'labels_
             label = np.zeros((config.n_classes, event_roll.data.shape[1]))
         else:
             label = np.zeros((config.n_classes, len(event_roll.data[1])))
-
 
         # convert labels into correct label list index
         for original_index, label_name in enumerate(event_roll.label_list):
@@ -131,32 +134,67 @@ def move_data_to_device(x, device):
     return x.to(device)
 
 def load_data(_feat_folder, _lab_folder, _metadata_path,  _fold=None):
-    # Load features (mbe)
-    # feat_file_fold = os.path.join(_feat_folder, 'merged_mbe_fold{}.npz'.format( _fold))
-    # dmp = np.load(feat_file_fold)
-    #
-    # _X_train, _X_val = dmp['arr_0'], dmp['arr_1']
-    #
-    # # Load the corresponding labels
-    # lab_file_fold = os.path.join(_lab_folder, 'merged_lab_soft_fold{}.npz'.format(_fold))
-    # dmp = np.load(lab_file_fold)
-    # _Y_train, _Y_val = dmp['arr_0'], dmp['arr_1']
-    #
-    # return _X_train, _Y_train, _X_val, _Y_val
 
-    # load development features
+    # load development features and labels
     development_file = os.path.join(_metadata_path, f'/crossvalidation/meta_fold0{_fold}_development.txt')
     df = pd.read_csv(f'{_metadata_path}{development_file}',sep='\t')
     unique_development_files = df['path'].unique()
+    print(f'Fold {_fold} training files\n{unique_development_files}\t')
 
-    # load development labels
+    X, Y = None, None
 
-    # load evaluation features
+    for dev_file in unique_development_files:
+        temp_feature = get_feature_matrix(audio_filename=dev_file)
+        temp_label = get_labels(audio_filename=dev_file)
+
+        # Avoid ValueError: zero-dimensional arrays cannot be concatenated by setting first array to temp_feature
+        if X is None:
+            X = temp_feature
+        else:
+            X = np.concatenate((X, temp_feature), 1)
+
+        if Y is None:
+            Y = temp_label
+        else:
+            Y = np.concatenate((Y, temp_label), 1)
+
+    # Normalize development features
+    scaler = preprocessing.StandardScaler()
+    X = scaler.fit_transform(X=X)
+
+    print(X,X.shape)
+    print(Y,Y.shape)
+
+    # load evaluation features and labels
     evaluation_file = os.path.join(_metadata_path, f'/crossvalidation/meta_fold0{_fold}_evaluation.txt')
     df = pd.read_csv(f'{_metadata_path}{evaluation_file}', sep='\t')
     unique_evaluation_files = df['path'].unique()
+    print(f'Fold {_fold} evaluation files\n{unique_evaluation_files}\t')
 
-    # load evaluation labels
+    X_val, Y_val = None, None
+
+    for eval_file in unique_evaluation_files:
+        temp_feature = get_feature_matrix(audio_filename=eval_file)
+        temp_label = get_labels(audio_filename=eval_file)
+
+        # Avoid ValueError: zero-dimensional arrays cannot be concatenated by setting first array to temp_feature
+        if X_val is None:
+            X_val = temp_feature
+        else:
+            X_val = np.concatenate((X_val, temp_feature), 1)
+
+        if Y_val is None:
+            Y_val = temp_label
+        else:
+            Y_val = np.concatenate((Y_val, temp_label), 1)
+
+    # Normalize evaluation features
+    X_val = scaler.fit_transform(X=X_val)
+
+    print(X_val,X_val.shape)
+    print(Y_val,Y_val.shape)
+
+    return X, Y, X_val, Y_val
 
 
 
@@ -174,7 +212,7 @@ def preprocess_data(_X, _Y, _X_val, _Y_val, _seq_len):
 
 def train():
     #     Per fold:
-    # 1. Generate X and Y data
+    # 1. Generate X, X_eval and Y, Y_eval data
     # 2. Train model using MSE
     # 3. After training, evaluate on eval data using SED metrics
     # 4. After training on all folds and epochs for each fold, test on test metadata
@@ -194,6 +232,7 @@ def train():
     dataset_storage_path = os.path.join(data_storage_path, 'datasets')
     feature_storage_path = os.path.join(data_storage_path, 'features_sed')
     metadata_path = os.path.join(data_storage_path, 'metadata')
+    labels_storage_path = os.path.join(data_storage_path, ' labels_sed')
     dcase_util.utils.Path().create(
         [data_storage_path, dataset_storage_path, feature_storage_path]
     )
@@ -223,13 +262,17 @@ def train():
     #         # print(un)
     #         print(files)
 
+    # Load features and labels
     for fold in config.cv_fold:
 
-        load_data('','', _metadata_path=metadata_path,_fold=fold)
+        if fold==1:
+            # Load features and labels
+            X, Y, X_val, Y_val = load_data(_feat_folder=feature_storage_path,_lab_folder=labels_storage_path, _metadata_path=metadata_path,_fold=fold)
 
-        # Load features and labels
-        # X, Y, X_val, Y_val = load_data('development/features', 'development/soft_labels', fold)
-        # X, Y, X_val, Y_val = preprocess_data(X, Y, X_val, Y_val, config.sequence_length)
+            # Stack data into clips of desired sequence length
+            X, Y, X_val, Y_val = preprocess_data(X, Y, X_val, Y_val, config.sequence_length)
+
+            print(f'X: {X.shape}\nY: {Y.shape}')
         #
         # train_dataset = TUTDataset(X, Y)
         # validate_dataset = TUTDataset(X_val, Y_val)
@@ -354,3 +397,6 @@ if __name__ == '__main__':
     )
 
     train()
+
+    # t = get_feature_matrix('TUT-sound-events-2016-development/audio/residential_area/b003.wav',feature_storage_path=feature_storage_path)
+    # print(t)
