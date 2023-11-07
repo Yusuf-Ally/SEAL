@@ -217,6 +217,14 @@ def train():
     # 3. After training, evaluate on eval data using SED metrics
     # 4. After training on all folds and epochs for each fold, test on test metadata
 
+    # Arguments & parameters
+    stop_iteration = 150
+    learning_rate = 1e-3
+    patience = int(0.6*stop_iteration)
+    holdout_fold = np.arange(1, 4)
+    seq_len = 500
+    batch_size = 32
+
     # initialization
     device = (
         "cuda"
@@ -265,60 +273,78 @@ def train():
     # Load features and labels
     for fold in config.cv_fold:
 
-        if fold==1:
+        if fold==5:
             # Load features and labels
             X, Y, X_val, Y_val = load_data(_feat_folder=feature_storage_path,_lab_folder=labels_storage_path, _metadata_path=metadata_path,_fold=fold)
 
+            X = np.transpose(X)
+            X_val = np.transpose(X_val)
+            Y = np.transpose(Y)
+            Y_val = np.transpose(Y_val)
+
             # Stack data into clips of desired sequence length
             X, Y, X_val, Y_val = preprocess_data(X, Y, X_val, Y_val, config.sequence_length)
+            np.save('/Users/yusuf/Downloads/fold1_Xval.npy',X_val)
+            np.save('/Users/yusuf/Downloads/fold1_Yval.npy', Y_val)
 
-            print(f'X: {X.shape}\nY: {Y.shape}')
-        #
-        # train_dataset = TUTDataset(X, Y)
-        # validate_dataset = TUTDataset(X_val, Y_val)
-        #
-        # # Data loader
-        # train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=config.batch_size, shuffle=True,
-        #                                            num_workers=1, pin_memory=True)
-        #
-        # validate_loader = torch.utils.data.DataLoader(dataset=validate_dataset, batch_size=config.batch_size, shuffle=True,
-        #                                               num_workers=1, pin_memory=True)
-        #
-        # # Prepare model
-        # modelcrnn = CRNN(config.n_classes, config.cnn_filter, config.gru_hidden_layers, config.dropout)
-        #
-        # if 'cuda' in device:
-        #     modelcrnn.to(device)
-        # print('\nCreate model:')
-        #
-        # # Optimizer
+        if fold ==1:
+            X = np.load('/Users/yusuf/Downloads/fold1_X.npy')
+            X_val = np.load('/Users/yusuf/Downloads/fold1_Xval.npy')
+            Y = np.load('/Users/yusuf/Downloads/fold1_Y.npy')
+            Y_val = np.load('/Users/yusuf/Downloads/fold1_Yval.npy')
+
+
+
+
+        train_dataset = TUTDataset(X, Y)
+        validate_dataset = TUTDataset(X_val, Y_val)
+
+        # Data loader
+        train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=config.batch_size, shuffle=True,
+                                                   num_workers=1, pin_memory=True)
+
+        validate_loader = torch.utils.data.DataLoader(dataset=validate_dataset, batch_size=config.batch_size, shuffle=True,
+                                                      num_workers=1, pin_memory=True)
+
+
+
+        # Prepare model
+        modelcrnn = CRNN(config.n_classes, config.cnn_filter, config.gru_hidden_layers, config.dropout)
+
+        if 'cuda' in device:
+            modelcrnn.to(device)
+        print('\nCreate model:')
+
+        # Optimizer
         # optimizer = optim.Adam(CRNN.parameters(), lr=config.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0., amsgrad=False)
-        #
-        # best_epoch = 0; pat_cnt = 0; pat_learn_rate = 0; best_loss = 99999
-        # tr_loss, val_F1, val_ER = [0] * stop_iteration, [0] * stop_iteration, [0] * stop_iteration
+        optimizer = optim.Adam(modelcrnn.parameters(), lr=config.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0., amsgrad=False)
+
+        best_epoch = 0; pat_cnt = 0; pat_learn_rate = 0; best_loss = 99999
+        tr_loss, val_F1, val_ER = [0] * stop_iteration, [0] * stop_iteration, [0] * stop_iteration
 
         # Train on mini batches
-        # tr_batch_loss = list()
-        # for epoch in range(stop_iteration):
-        #
-        #     modelcrnn.train()
-        #     # TRAIN
-        #     for (batch_data, batch_target) in train_loader:
-        #         # Zero gradients for every batch
-        #         optimizer.zero_grad()
-        #
-        #         batch_output = modelcrnn(move_data_to_device(batch_data, device))
-        #
-        #         # Calculate loss
-        #         loss = clip_mse(batch_output, move_data_to_device(batch_target, device))
-        #
-        #         tr_batch_loss.append(loss.item())
-        #
-        #         # Backpropagation
-        #         loss.backward()
-        #         optimizer.step()
-        #
-        #     tr_loss[epoch] = np.mean(tr_batch_loss)
+        tr_batch_loss = list()
+        for epoch in range(stop_iteration):
+
+            modelcrnn.train()
+            # TRAIN
+            for (batch_data, batch_target) in train_loader:
+                # Zero gradients for every batch
+                optimizer.zero_grad()
+
+                batch_output = modelcrnn(move_data_to_device(batch_data, device))
+
+                # Calculate loss
+                loss = clip_mse(batch_output, move_data_to_device(batch_target, device))
+
+                tr_batch_loss.append(loss.item())
+
+                # Backpropagation
+                loss.backward()
+                optimizer.step()
+
+            tr_loss[epoch] = np.mean(tr_batch_loss)
+            print(f'Epoch {epoch} loss: {tr_loss[epoch]}\n')
         #
         #     # VALIDATE
         #     modelcrnn.eval()
