@@ -25,11 +25,14 @@ class CRNN(nn.Module):
 
         self.dropout = nn.Dropout(_dropout_rate)
 
-        self.gru1 = nn.GRU(int(3 * cnn_filters), rnn_hid, bidirectional=True, batch_first=True)
+        # Changed input_size from 3*cnn_filters to 1*cnn_filters
+        self.gru1 = nn.GRU(input_size=int(1 * cnn_filters), hidden_size=rnn_hid, bidirectional=True, batch_first=True)
 
         self.linear1 = nn.Linear(rnn_hid * 2, rnn_hid)
 
         self.linear2 = nn.Linear(rnn_hid, classes_num)
+
+        self.output = nn.Sigmoid()
 
     def forward(self, input):
         x = self.conv1(input[:, None, :, :])
@@ -58,5 +61,6 @@ class CRNN(nn.Module):
         recurrent, _ = self.gru1(x)
         x = self.linear1(recurrent)
         x = self.linear2(x)
+        x = self.output(x)
 
         return x
